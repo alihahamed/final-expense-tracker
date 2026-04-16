@@ -4,7 +4,10 @@
       "Bash(claude plugin *)",
       "Skill(update-config)",
       "mcp__supabase__apply_migration",
-      "mcp__supabase__execute_sql"
+      "mcp__supabase__execute_sql",
+      "Bash(npm install *)",
+      "Bash(node -e \"require\\('tesseract.js'\\); console.log\\('ok'\\)\")",
+      "Bash(npx vite *)"
     ]
   }
 }

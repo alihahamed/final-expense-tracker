@@ -6,6 +6,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { LedgersPage } from './pages/LedgersPage';
 import { LoginPage } from './pages/LoginPage';
 import { SettleUpModal } from './components/SettleUpModal';
+import { ReceiptScanModal } from './components/ReceiptScanModal';
 import { supabase } from './lib/supabase';
 import { buildMonthlyTrend, CURRENCIES, CAT_EMOJI } from './utils/data';
 import { cn } from './lib/utils';
@@ -13,7 +14,7 @@ import { Toaster, toast } from 'sonner';
 import {
   LayoutDashboard, Receipt, Settings, Moon, Sun,
   X, Check, Wallet, TrendingUp, ArrowUpRight, ArrowDownLeft, Users,
-  User, LogOut,
+  User, LogOut, ScanLine, QrCode,
 } from 'lucide-react';
 import Logo from './assets/app-logo.png';
 import Av1 from './assets/3D_Portrait_Avatar_1.png';
@@ -265,6 +266,7 @@ export default function App() {
   const [currency, setCurrency] = useState('USD');
   const [page,     setPage]     = useState('dashboard');
   const [modal,        setModal]        = useState(null);
+  const [receiptScanOpen, setReceiptScanOpen] = useState(false);
   const [settleModal,  setSettleModal]  = useState(null);
   const [ledgerMembers, setLedgerMembers] = useState([]);
   const [userName, setUserName] = useState('Alex');
@@ -272,6 +274,7 @@ export default function App() {
   const [fixedObligations, setFixedObligations] = useState(2000);
   const [avatarUrl, setAvatarUrl] = useState(Av1);
   const [profileLoading, setProfileLoading] = useState(true);
+  const txnsChannelRef = useRef(null);
 
   // 1. Auth Subscription
   useEffect(() => {
@@ -295,7 +298,14 @@ export default function App() {
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
+
+    if (error) {
+      console.error('[fetchProfile] failed:', error);
+      setProfileLoading(false);
+      setLoadingSession(false);
+      return;
+    }
 
     if (data) {
       setUserName(data.display_name || 'Alex');
@@ -313,9 +323,10 @@ export default function App() {
         avatar_url: 'av1',
         currency: 'USD',
         income_target: 5000,
-        fixed_obligations: 2000
+        fixed_obligations: 2000,
+        updated_at: new Date().toISOString(),
       };
-      await supabase.from('profiles').upsert(defaultProfile);
+      await supabase.from('profiles').upsert(defaultProfile, { onConflict: 'id' });
       setUserName('Alex');
       setCurrency('USD');
       setIncomeTarget(5000);
@@ -394,6 +405,40 @@ export default function App() {
     }
   }, [activeLedger?.id]);
 
+  const fetchTxns = useCallback(async (ledgerId = activeLedger?.id) => {
+    if (!ledgerId) {
+      setTxns([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('ledger_id', ledgerId)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[fetchTxns] failed:', error);
+      return;
+    }
+
+    if (data) setTxns(data);
+  }, [activeLedger?.id]);
+
+  const notifyLedgerChanged = useCallback(async (reason) => {
+    if (!txnsChannelRef.current || !activeLedger?.id || !session?.user?.id) return;
+    try {
+      await txnsChannelRef.current.send({
+        type: 'broadcast',
+        event: 'ledger_txns_changed',
+        payload: { ledgerId: activeLedger.id, senderId: session.user.id, reason },
+      });
+    } catch (error) {
+      console.error('[notifyLedgerChanged] broadcast failed:', error);
+    }
+  }, [activeLedger?.id, session?.user?.id]);
+
   // 3. Fetch Transactions when Active Ledger changes & Subscribe to Websocket
   useEffect(() => {
     if (!activeLedger?.id) {
@@ -401,24 +446,20 @@ export default function App() {
        return;
     }
 
-    async function fetchTxns() {
-       const { data, error } = await supabase
-         .from('transactions')
-         .select('*')
-         .eq('ledger_id', activeLedger.id)
-         .order('date', { ascending: false })
-         .order('created_at', { ascending: false });
+    fetchTxns(activeLedger.id);
 
-       if (!error && data) {
-          setTxns(data);
-       }
-    }
-
-    fetchTxns();
-
-    // WEBSOCKET: delta-based updates — no full refetch on every event
+    // Broadcast is a fallback for shared ledgers when Postgres realtime publication is delayed or disabled.
     const channel = supabase
-      .channel(`ledger-${activeLedger.id}`)
+      .channel(`ledger-${activeLedger.id}`, {
+        config: { broadcast: { self: false } },
+      })
+      .on(
+        'broadcast',
+        { event: 'ledger_txns_changed' },
+        (payload) => {
+          if (payload.payload?.ledgerId === activeLedger.id) fetchTxns(activeLedger.id);
+        }
+      )
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'transactions', filter: `ledger_id=eq.${activeLedger.id}` },
@@ -428,11 +469,11 @@ export default function App() {
             // Skip if already in state (own insert already applied optimistically)
             if (prev.some(t => t.id === tx.id)) return prev;
             return [tx, ...prev].sort((a, b) =>
-              b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at)
+              b.date.localeCompare(a.date) || (b.created_at || '').localeCompare(a.created_at || '')
             );
           });
           // Toast partner's settlement to current user
-          if (tx.type === 'transfer' && tx.user_id !== session.user.id) {
+          if (tx.type === 'transfer' && tx.user_id !== session?.user?.id) {
             toast.success('Settlement received', {
               description: `${tx.description} — ${new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Math.abs(tx.amount))}`,
             });
@@ -455,10 +496,13 @@ export default function App() {
       )
       .subscribe();
 
+    txnsChannelRef.current = channel;
+
     return () => {
+      if (txnsChannelRef.current === channel) txnsChannelRef.current = null;
       supabase.removeChannel(channel);
     };
-  }, [activeLedger]);
+  }, [activeLedger?.id, currency, fetchTxns, session?.user?.id]);
 
   // 4. Fetch ledger members when active ledger changes
   useEffect(() => {
@@ -487,6 +531,11 @@ export default function App() {
     if (!activeLedger) return alert('Select or create a workspace first!');
     setModal({ mode: 'add', type });
   }, [activeLedger]);
+
+  const handleOpenReceiptScan = useCallback(() => {
+    if (!activeLedger) return alert('Select or create a workspace first!');
+    setReceiptScanOpen(true);
+  }, [activeLedger]);
   
   const handleEdit   = useCallback((tx)   => setModal({ mode: 'edit', tx }),  []);
   
@@ -494,10 +543,11 @@ export default function App() {
     const { error } = await supabase.from('transactions').delete().eq('id', id);
     if (!error) {
        setTxns(prev => prev.filter(t => t.id !== id));
+       await notifyLedgerChanged('transaction_deleted');
     } else {
        console.error("Delete failed:", error);
     }
-  }, []);
+  }, [notifyLedgerChanged]);
 
   const handleSave = useCallback(async (tx) => {
     if (!activeLedger?.id) return;
@@ -519,6 +569,7 @@ export default function App() {
          
        if (!error && data) {
          setTxns(prev => prev.map(t => t.id === data.id ? data : t));
+         await notifyLedgerChanged('transaction_updated');
        }
     } else {
        // Insert
@@ -538,9 +589,10 @@ export default function App() {
          
        if (!error && data) {
          setTxns(prev => [data, ...prev].sort((a,b) => b.date.localeCompare(a.date)));
+         await notifyLedgerChanged('transaction_inserted');
        }
     }
-  }, [activeLedger, session]);
+  }, [activeLedger, notifyLedgerChanged, session]);
 
   const handleSettle = useCallback(async ({ payerId, amount, date, note }) => {
     if (!activeLedger?.id) return;
@@ -559,9 +611,10 @@ export default function App() {
       .single();
     if (error) { toast.error('Failed to record settlement'); return; }
     setTxns(prev => [data, ...prev].sort((a, b) => b.date.localeCompare(a.date)));
+    await notifyLedgerChanged('settlement_inserted');
     toast.success('Settlement recorded');
     setSettleModal(null);
-  }, [activeLedger]);
+  }, [activeLedger, notifyLedgerChanged]);
 
   return (
     <div className="min-h-screen bg-black font-sans selection:bg-primary/30">
@@ -624,8 +677,44 @@ export default function App() {
                 ))}
               </nav>
 
+              <button
+                onClick={handleOpenReceiptScan}
+                className="mt-4 flex-1 min-h-[220px] w-full rounded-2xl bg-primary text-white p-5 text-left relative overflow-hidden border border-white/10 hover:brightness-105 transition-all"
+              >
+                <div className="absolute -right-10 -top-10 w-36 h-36 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+                <div className="absolute inset-0 opacity-25 pointer-events-none">
+                  <div className="grid grid-cols-8 gap-1 p-4">
+                    {Array.from({ length: 64 }).map((_, i) => (
+                      <span
+                        key={`qr-dot-${i}`}
+                        className={cn(
+                          'w-2.5 h-2.5 rounded-[2px] bg-white/70',
+                          i % 3 === 0 ? 'opacity-90' : 'opacity-35'
+                        )}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="relative z-10 h-full flex flex-col justify-between">
+                  <div className="w-12 h-12 rounded-xl bg-white/15 border border-white/30 flex items-center justify-center">
+                    <QrCode size={24} />
+                  </div>
+
+                  <div>
+                    {/* <p className="text-xs font-medium uppercase tracking-widest text-white/80 mb-1">Quick Capture</p> */}
+                    <p className="text-2xl font-semibold tracking-tight leading-tight">Scan Receipt</p>
+                    <p className="text-[11px] text-white/85 mt-1">Read merchant, amount, date, and items</p>
+                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/15 border border-white/20 text-xs font-semibold">
+                      <ScanLine size={14} />
+                      Start Scan
+                    </div>
+                  </div>
+                </div>
+              </button>
+
               {/* Bottom Section */}
-              <div className="mt-auto flex flex-col gap-2">
+              <div className="mt-4 flex flex-col gap-2">
                 {/* Settings Link */}
                 <button
                   onClick={() => setPage('settings')}
@@ -700,6 +789,7 @@ export default function App() {
                         onDelete={handleDelete}
                         monthlyTrend={monthlyTrend}
                         onAdd={handleAdd}
+                        onScanReceipt={handleOpenReceiptScan}
                         currency={currency}
                         setCurrency={setCurrency}
                         fmt={fmt}
@@ -778,6 +868,14 @@ export default function App() {
                 initial={modal.mode === 'edit' ? modal.tx : { type: modal.type }}
                 onSave={handleSave}
                 onClose={() => setModal(null)}
+              />
+            )}
+            {receiptScanOpen && (
+              <ReceiptScanModal
+                key="receipt-scan-modal"
+                onSave={handleSave}
+                onClose={() => setReceiptScanOpen(false)}
+                currency={currency}
               />
             )}
             {settleModal && (

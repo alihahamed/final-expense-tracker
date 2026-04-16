@@ -5,6 +5,7 @@ import {
   Trash2, HardDrive, Smartphone,
   Laptop, AlertCircle, Terminal, Check
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { CURRENCIES } from '@/utils/data';
 import { cn } from '@/lib/utils';
 
@@ -83,13 +84,14 @@ export function SettingsPage({
         income_target: incomeTarget,
         fixed_obligations: fixedObligations,
         updated_at: new Date()
-      });
+      }, { onConflict: 'id' });
 
     if (error) {
       toast.error('Failed to update profile');
     } else {
-      onProfileUpdate();
+      await onProfileUpdate();
       setHasChanges(false);
+      toast.success('Profile updated');
     }
     setIsSaving(false);
   };

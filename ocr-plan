@@ -1,0 +1,49 @@
+I need a detailed implementation plan for adding OCR receipt scanning to a React expense tracker app. The plan should be saved as a markdown file at: C:\Users\aliah\.claude\plans\ocr-receipt-scanning.md
+
+## App context
+- React 19 + Vite + Tailwind CSS v4 + framer-motion
+- Supabase (PostgreSQL + RLS + Realtime WebSockets)
+- Existing transaction types: 'income', 'expense', 'transfer'
+- Existing expense categories (from App.jsx): groceries, dining, transport, utilities, rent, entertainment, health, shopping, travel, education, other
+- `src/App.jsx` — main state, `handleSave(tx)` inserts transactions, `TxnModal` component handles add/edit
+- `src/pages/DashboardPage.jsx` — shows transaction history, balance, charts
+- `src/pages/TransactionsPage.jsx` — full transaction list
+- `src/lib/supabase.js` — supabase client (no special config)
+- `src/utils/data.js` — helpers including `firstNameFromEmail`, `buildMonthlyTrend`, `PALETTE`, `CURRENCIES`
+- `src/components/TransactionCard.jsx` — receipt-styled card UI
+
+## Feature requirements
+1. User clicks "Scan Receipt" button (in sidebar or add menu)
+2. Camera/file picker opens → user takes photo or uploads receipt image
+3. OCR reads the receipt → extracts: merchant name, total amount, date, line items
+4. Auto-categorise based on merchant/items (e.g. "Walmart" → Groceries, "Uber" → Transport, "Netflix" → Entertainment)
+5. Shows a review modal — user can confirm/edit before saving
+6. Saves as expense transaction via existing `handleSave` path
+7. Appears immediately on dashboard + transaction list
+
+## Technical constraints
+- Must work on mobile (camera access via `<input type="file" capture="environment">`)
+- OCR options to evaluate: Tesseract.js (client-side, no API key) vs Google Cloud Vision API vs OpenAI GPT-4o vision
+- Auto-categorisation: rule-based keyword matching first (no extra API), with fallback to AI if available
+- No new database tables needed — fits into existing `transactions` schema
+- Budget concern: prefer free/cheap OCR. Tesseract.js is free but slow; GPT-4o vision is accurate but costs per call; Google Vision has free tier
+
+## Plan file requirements
+The plan file should cover:
+1. OCR library choice with trade-off analysis (recommend one)
+2. New component: `ReceiptScanModal.jsx` — camera capture, OCR processing, review/edit, confirm
+3. Auto-categorisation logic: keyword → category mapping (comprehensive list)
+4. Integration points in `App.jsx` (new state, handler, modal mount)
+5. Sidebar "Scan Receipt" button addition
+6. Mobile UX considerations
+7. Processing states (capturing → scanning → reviewing → saving)
+8. Error handling (bad image quality, unreadable receipt)
+9. Execution order
+10. Critical files list
+
+Read the following files before writing the plan:
+- C:\Users\aliah\Pictures\final-expense-tracker\src\App.jsx (lines 1-40 for imports/categories, lines 395-460 for handleSave)
+- C:\Users\aliah\Pictures\final-expense-tracker\src\utils\data.js
+- C:\Users\aliah\Pictures\final-expense-tracker\package.json
+
+Write the complete plan to C:\Users\aliah\.claude\plans\ocr-receipt-scanning.md

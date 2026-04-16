@@ -21,7 +21,7 @@ export function LedgersPage({
     fetchLedgers();
   }, []);
 
-  async function fetchLedgers() {
+  async function fetchLedgers(preferredLedgerId = null) {
     const { data: members, error: mErr } = await supabase
       .from('ledger_members')
       .select('ledger_id')
@@ -40,7 +40,10 @@ export function LedgersPage({
     if (lErr) { console.error('[fetchLedgers] ledgers error:', lErr); return; }
     if (ledgersData) {
       setLedgers(ledgersData);
-      setActiveLedger(prev => prev ?? ledgersData[0]);
+      const preferred = preferredLedgerId
+        ? ledgersData.find(l => l.id === preferredLedgerId)
+        : null;
+      setActiveLedger(prev => preferred ?? prev ?? ledgersData[0]);
     }
   }
 
@@ -63,7 +66,7 @@ export function LedgersPage({
         .insert([{ ledger_id: newLedgerId, user_id: session.user.id }]);
       if (mErr) throw mErr;
 
-      await fetchLedgers();
+      await fetchLedgers(newLedgerId);
       setCreateName('');
       toast.success(`Workspace "${name}" created!`);
     } catch (err) {
@@ -88,7 +91,7 @@ export function LedgersPage({
 
       if (fnErr) throw fnErr;
 
-      await fetchLedgers();
+      await fetchLedgers(joinedLedgerId);
       toast.success('Successfully joined Workspace!');
       setJoinCode('');
     } catch (err) {
@@ -303,4 +306,3 @@ export function LedgersPage({
     </div>
   );
 }
-

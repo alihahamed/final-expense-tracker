@@ -19,11 +19,19 @@ export function BalancesWidget({ txns, members, currentUserId, ledgerName, fmt, 
   const myName      = firstNameFromEmail(members.find(m => m.user_id === currentUserId)?.email);
   const partnerName = firstNameFromEmail(partner?.email);
 
-  const { myPaid, partnerPaid, net } = useMemo(() => {
+  const { myPaid, partnerPaid, net, splitCategory } = useMemo(() => {
     const spendBy = {};
+    const categorySpend = {};
+
     txns.forEach(t => {
       if (t.type !== 'expense') return;
-      spendBy[t.user_id] = (spendBy[t.user_id] || 0) + Math.abs(t.amount);
+      const amount = Math.abs(t.amount);
+      const cat = t.category || 'Other';
+      spendBy[t.user_id] = (spendBy[t.user_id] || 0) + amount;
+      if (!categorySpend[cat]) categorySpend[cat] = { me: 0, partner: 0, total: 0 };
+      categorySpend[cat].total += amount;
+      if (t.user_id === currentUserId) categorySpend[cat].me += amount;
+      else if (partner && t.user_id === partner.user_id) categorySpend[cat].partner += amount;
     });
 
     const myPaid      = spendBy[currentUserId] || 0;
@@ -40,14 +48,45 @@ export function BalancesWidget({ txns, members, currentUserId, ledgerName, fmt, 
     const rawImbalance = (myPaid - partnerPaid) / 2;
     const net = Math.round((rawImbalance - partnerTransfers + myTransfers) * 100) / 100;
 
-    return { myPaid, partnerPaid, net };
+    const side = net > 0 ? 'positive' : net < 0 ? 'negative' : 'neutral';
+    let bestCategory = null;
+    let bestScore = 0;
+
+    Object.entries(categorySpend).forEach(([cat, vals]) => {
+      const diff = (vals.me - vals.partner) / 2;
+      const matchesSide =
+        side === 'neutral' ||
+        (side === 'positive' && diff > 0) ||
+        (side === 'negative' && diff < 0);
+      if (!matchesSide) return;
+      const score = Math.abs(diff);
+      if (score > bestScore) {
+        bestScore = score;
+        bestCategory = cat;
+      }
+    });
+
+    if (!bestCategory) {
+      let fallback = null;
+      let fallbackTotal = 0;
+      Object.entries(categorySpend).forEach(([cat, vals]) => {
+        if (vals.total > fallbackTotal) {
+          fallbackTotal = vals.total;
+          fallback = cat;
+        }
+      });
+      bestCategory = fallback;
+    }
+
+    return { myPaid, partnerPaid, net, splitCategory: bestCategory || 'General' };
   }, [txns, currentUserId, partner]);
 
   const isEven    = Math.abs(net) < 0.01;
   const theyOweMe = net > 0;
+  const canCurrentUserSettle = !isEven && !theyOweMe;
 
   const handleSettle = () => {
-    if (isEven || !partner) return;
+    if (isEven || !partner || !canCurrentUserSettle) return;
     onRequestSettle({
       amount:    Math.abs(net),
       payerId:   theyOweMe ? partner.user_id : currentUserId,
@@ -145,16 +184,21 @@ export function BalancesWidget({ txns, members, currentUserId, ledgerName, fmt, 
                 : `${myName} owes ${partnerName}`}
             </p>
           )}
+          {!isEven && (
+            <span className="inline-flex items-center rounded-full border border-border bg-muted px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {splitCategory}
+            </span>
+          )}
           <button
             onClick={handleSettle}
-            disabled={isEven}
+            disabled={!canCurrentUserSettle}
             className={cn(
               'flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white bg-primary hover:bg-primary/90 transition-colors',
               'disabled:opacity-30 disabled:cursor-not-allowed'
             )}
           >
             <ArrowRightLeft size={11} />
-            Settle Up
+            {canCurrentUserSettle ? 'Settle Up' : (isEven ? 'Settled' : 'Waiting')}
           </button>
         </div>
 
