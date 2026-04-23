@@ -6,14 +6,14 @@ export const PALETTE = [
 
 // ── Supported currencies ───────────────────────────────────────────────────────
 export const CURRENCIES = {
-  USD: { symbol: '$',  flag: '🇺🇸', locale: 'en-US' },
-  EUR: { symbol: '€',  flag: '🇪🇺', locale: 'de-DE' },
-  GBP: { symbol: '£',  flag: '🇬🇧', locale: 'en-GB' },
-  JPY: { symbol: '¥',  flag: '🇯🇵', locale: 'ja-JP' },
-  INR: { symbol: '₹',  flag: '🇮🇳', locale: 'en-IN' },
-  CAD: { symbol: 'C$', flag: '🇨🇦', locale: 'en-CA' },
-  AUD: { symbol: 'A$', flag: '🇦🇺', locale: 'en-AU' },
-  SGD: { symbol: 'S$', flag: '🇸🇬', locale: 'en-SG' },
+  USD: { symbol: '$',  flag: '🇺🇸', locale: 'en-US', rate: 1 },
+  EUR: { symbol: '€',  flag: '🇪🇺', locale: 'de-DE', rate: 0.92 },
+  GBP: { symbol: '£',  flag: '🇬🇧', locale: 'en-GB', rate: 0.79 },
+  JPY: { symbol: '¥',  flag: '🇯🇵', locale: 'ja-JP', rate: 153.6 },
+  INR: { symbol: '₹',  flag: '🇮🇳', locale: 'en-IN', rate: 83.5 },
+  CAD: { symbol: 'C$', flag: '🇨🇦', locale: 'en-CA', rate: 1.38 },
+  AUD: { symbol: 'A$', flag: '🇦🇺', locale: 'en-AU', rate: 1.54 },
+  SGD: { symbol: 'S$', flag: '🇸🇬', locale: 'en-SG', rate: 1.36 },
 };
 
 // ── Sample transactions ────────────────────────────────────────────────────────

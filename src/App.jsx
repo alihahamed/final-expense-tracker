@@ -525,7 +525,9 @@ export default function App() {
   }, [activeLedger]);
 
   const fmt          = useMemo(() => makeFmt(currency), [currency]);
-  const monthlyTrend = useMemo(() => buildMonthlyTrend(txns), [txns]);
+  const rate         = CURRENCIES[currency]?.rate || 1;
+  const localTxns    = useMemo(() => txns.map(t => ({ ...t, amount: t.amount * rate })), [txns, rate]);
+  const monthlyTrend = useMemo(() => buildMonthlyTrend(localTxns), [localTxns]);
 
   const handleAdd    = useCallback((type) => {
     if (!activeLedger) return alert('Select or create a workspace first!');
@@ -552,6 +554,9 @@ export default function App() {
   const handleSave = useCallback(async (tx) => {
     if (!activeLedger?.id) return;
     
+    const rate = CURRENCIES[currency]?.rate || 1;
+    const baseAmount = tx.amount / rate;
+    
     if (tx.id) {
        // Update
        const { data, error } = await supabase
@@ -560,7 +565,7 @@ export default function App() {
             type: tx.type,
             category: tx.category,
             description: tx.description,
-            amount: tx.amount,
+            amount: baseAmount,
             date: tx.date
          })
          .eq('id', tx.id)
@@ -596,6 +601,10 @@ export default function App() {
 
   const handleSettle = useCallback(async ({ payerId, amount, date, note }) => {
     if (!activeLedger?.id) return;
+    
+    const rate = CURRENCIES[currency]?.rate || 1;
+    const baseAmount = amount / rate;
+    
     const { data, error } = await supabase
       .from('transactions')
       .insert([{
@@ -604,7 +613,7 @@ export default function App() {
         type: 'transfer',
         category: 'Settlement',
         description: note || 'Settle up',
-        amount: Math.abs(amount),
+        amount: Math.abs(baseAmount),
         date,
       }])
       .select()
@@ -784,7 +793,7 @@ export default function App() {
                       transition={{ duration: 0.25, ease: 'easeOut' }}
                     >
                       <DashboardPage
-                        txns={txns}
+                        txns={localTxns}
                         onEdit={handleEdit}
                         onDelete={handleDelete}
                         monthlyTrend={monthlyTrend}
@@ -794,8 +803,8 @@ export default function App() {
                         setCurrency={setCurrency}
                         fmt={fmt}
                         userName={userName}
-                        incomeTarget={incomeTarget}
-                        fixedObligations={fixedObligations}
+                        incomeTarget={incomeTarget * rate}
+                        fixedObligations={fixedObligations * rate}
                         ledgerMembers={ledgerMembers}
                         currentUserId={session.user.id}
                         activeLedger={activeLedger}

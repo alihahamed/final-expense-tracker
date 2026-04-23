@@ -1,23 +1,32 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { LogIn, UserPlus, FileWarning, Loader2 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { LogIn, UserPlus, FileWarning, Loader2, KeyRound } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils'; // if you need to merge classes
 
 export function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgot, setIsForgot] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
 
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg(null);
+    setSuccessMsg(null);
 
     try {
-      if (isLogin) {
+      if (isForgot) {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin,
+        });
+        if (error) throw error;
+        setSuccessMsg('Password reset link sent to your email.');
+      } else if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       } else {
@@ -64,19 +73,29 @@ export function LoginPage() {
           
           <div>
             <h2 className="text-xl font-bold text-foreground">
-              {isLogin ? 'Access System' : 'Initialize Account'}
+              {isForgot ? 'Reset Password' : (isLogin ? 'Access System' : 'Initialize Account')}
             </h2>
             <p className="text-sm font-medium text-muted-foreground mt-1">
-              {isLogin ? 'Enter your credentials to continue.' : 'Create a new local ledger.'}
+              {isForgot 
+                ? 'Enter your email to receive a reset link.' 
+                : (isLogin ? 'Enter your credentials to continue.' : 'Create a new local ledger.')}
             </p>
           </div>
 
-          {errorMsg && (
-            <motion.div initial={{opacity: 0, height: 0}} animate={{opacity: 1, height: 'auto'}} className="bg-rose-500/10 border border-rose-500/30 p-3 rounded-xl flex gap-3 text-rose-500 items-start">
-              <FileWarning size={16} className="mt-0.5 shrink-0" />
-              <span className="text-[11px] font-bold uppercase tracking-wider">{errorMsg}</span>
-            </motion.div>
-          )}
+          <AnimatePresence>
+            {errorMsg && (
+              <motion.div initial={{opacity: 0, height: 0}} animate={{opacity: 1, height: 'auto'}} exit={{opacity: 0, height: 0}} className="bg-rose-500/10 border border-rose-500/30 p-3 rounded-xl flex gap-3 text-rose-500 items-start overflow-hidden">
+                <FileWarning size={16} className="mt-0.5 shrink-0" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">{errorMsg}</span>
+              </motion.div>
+            )}
+            {successMsg && (
+              <motion.div initial={{opacity: 0, height: 0}} animate={{opacity: 1, height: 'auto'}} exit={{opacity: 0, height: 0}} className="bg-emerald-500/10 border border-emerald-500/30 p-3 rounded-xl flex gap-3 text-emerald-500 items-start overflow-hidden">
+                <KeyRound size={16} className="mt-0.5 shrink-0" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">{successMsg}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="flex flex-col gap-4">
             <div>
@@ -91,18 +110,35 @@ export function LoginPage() {
               />
             </div>
             
-            <div>
-              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5 block">Access Key (Password)</label>
-              <input
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-muted border border-border rounded-xl px-4 py-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/50 transition-all font-bold placeholder:text-muted-foreground/50 placeholder:font-medium"
-                placeholder="••••••••"
-              />
-            </div>
+            {!isForgot && (
+              <div>
+                <div className="flex justify-between mb-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest block">Access Key (Password)</label>
+                  {isLogin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsForgot(true);
+                        setErrorMsg(null);
+                        setSuccessMsg(null);
+                      }}
+                      className="text-[10px] font-bold text-primary hover:text-primary/80 transition-colors"
+                    >
+                      FORGOT?
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-muted border border-border rounded-xl px-4 py-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/50 transition-all font-bold placeholder:text-muted-foreground/50 placeholder:font-medium"
+                  placeholder="••••••••"
+                />
+              </div>
+            )}
           </div>
 
           <button
@@ -110,20 +146,28 @@ export function LoginPage() {
             disabled={loading}
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-black text-sm uppercase tracking-widest py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : (isLogin ? <LogIn size={16}/> : <UserPlus size={16}/>)}
-            {loading ? 'Processing...' : (isLogin ? 'Authenticate' : 'Establish Node')}
+            {loading ? <Loader2 size={16} className="animate-spin" /> : (isForgot ? <KeyRound size={16}/> : (isLogin ? <LogIn size={16}/> : <UserPlus size={16}/>))}
+            {loading ? 'Processing...' : (isForgot ? 'Send Reset Link' : (isLogin ? 'Authenticate' : 'Establish Node'))}
           </button>
 
           <div className="flex items-center justify-center pt-2">
             <button
               type="button"
               onClick={() => {
-                setIsLogin(!isLogin);
+                if (isForgot) {
+                  setIsForgot(false);
+                  setIsLogin(true);
+                } else {
+                  setIsLogin(!isLogin);
+                }
                 setErrorMsg(null);
+                setSuccessMsg(null);
               }}
               className="text-[11px] font-bold text-muted-foreground hover:text-foreground uppercase tracking-wider transition-colors"
             >
-              {isLogin ? "Don't have an account? Sign up" : "Already established? Log in"}
+              {isForgot 
+                ? "Back to Login" 
+                : (isLogin ? "Don't have an account? Sign up" : "Already established? Log in")}
             </button>
           </div>
 
