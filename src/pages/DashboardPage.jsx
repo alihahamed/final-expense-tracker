@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   ComposedChart, Line, Area,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -134,7 +134,14 @@ export function DashboardPage({
   }, [txns, incomeTarget, fixedObligations]);
 
   // ── filtered transaction list ───────────────────────────────────────────────
-  const derivedRecentTxns = useMemo(() => {
+  const [recentTxns, setRecentTxns] = useState(() => {
+    let list = [...txns].filter(t => t.type !== 'transfer').sort((a, b) => b.date.localeCompare(a.date));
+    if (txFilterType !== 'all') list = list.filter(t => t.type === txFilterType);
+    if (txFilterCat  !== 'all') list = list.filter(t => t.category === txFilterCat);
+    return list.slice(0, 12);
+  });
+
+  useEffect(() => {
     let list = [...txns].filter(t => t.type !== 'transfer').sort((a, b) => b.date.localeCompare(a.date));
     if (selectedDate) {
       const dateStr = selectedDate.toISOString().split('T')[0];
@@ -142,10 +149,8 @@ export function DashboardPage({
     }
     if (txFilterType !== 'all') list = list.filter(t => t.type === txFilterType);
     if (txFilterCat  !== 'all') list = list.filter(t => t.category === txFilterCat);
-    return selectedDate ? list : list.slice(0, 12);
+    setRecentTxns(selectedDate ? list : list.slice(0, 12));
   }, [txns, selectedDate, txFilterType, txFilterCat]);
-
-  const recentTxns = derivedRecentTxns;
 
   // ── month-over-month % change ──────────────────────────────────────────────
   const today = new Date();

@@ -745,7 +745,7 @@ export default function App() {
 
                 {/* Profile Card */}
                 <div className="flex items-center gap-3 px-2 py-2">
-                  <div className="w-15 h-15 rounded-2xl overflow-hidden bg-white/10 border border-white/10 shrink-0">
+                  <div className="w-15 h-15 rounded-full overflow-hidden bg-yellow-100 border border-white/10 shrink-0">
                     <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                   </div>
                   <div className="flex flex-col min-w-0 pr-2">
@@ -831,6 +831,7 @@ export default function App() {
                         session={session}
                         ledgers={ledgers} setLedgers={setLedgers}
                         activeLedger={activeLedger} setActiveLedger={setActiveLedger}
+                        avatars={AVATARS}
                       />
                     </motion.div>
                   )}
