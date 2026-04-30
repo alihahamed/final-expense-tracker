@@ -378,8 +378,9 @@ export default function App() {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        // User clicked reset link — show new-password form, DON'T auto-login
+      const forceRecovery = localStorage.getItem('forcePasswordRecovery') === 'true';
+      if (event === 'PASSWORD_RECOVERY' || forceRecovery) {
+        // User clicked reset link or verified OTP — show new-password form, DON'T auto-login
         setPasswordRecovery(true);
         setSession(session);
         setLoadingSession(false);

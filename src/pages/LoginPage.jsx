@@ -77,8 +77,8 @@ function PasswordStrength({ password }) {
 }
 
 // ── OTP Input (6 boxes) ────────────────────────────────────────────────────────
-function OtpInput({ value, onChange }) {
-  const digits = value.split('').concat(Array(6).fill('')).slice(0, 6);
+function OtpInput({ value, onChange, length = 6 }) {
+  const digits = value.split('').concat(Array(length).fill('')).slice(0, length);
 
   const handleKey = (e, idx) => {
     const key = e.key;
@@ -90,20 +90,20 @@ function OtpInput({ value, onChange }) {
       return;
     }
     if (key === 'ArrowLeft' && idx > 0) { document.getElementById(`otp-${idx - 1}`)?.focus(); return; }
-    if (key === 'ArrowRight' && idx < 5) { document.getElementById(`otp-${idx + 1}`)?.focus(); return; }
+    if (key === 'ArrowRight' && idx < length - 1) { document.getElementById(`otp-${idx + 1}`)?.focus(); return; }
     if (/^\d$/.test(key)) {
       e.preventDefault();
       const next = digits.map((d, i) => (i === idx ? key : d)).join('');
       onChange(next);
-      if (idx < 5) document.getElementById(`otp-${idx + 1}`)?.focus();
+      if (idx < length - 1) document.getElementById(`otp-${idx + 1}`)?.focus();
     }
   };
 
   const handlePaste = (e) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    onChange(pasted.padEnd(6, '').slice(0, 6));
-    document.getElementById(`otp-${Math.min(pasted.length, 5)}`)?.focus();
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, length);
+    onChange(pasted.padEnd(length, '').slice(0, length));
+    document.getElementById(`otp-${Math.min(pasted.length, length - 1)}`)?.focus();
   };
 
   return (
@@ -120,7 +120,8 @@ function OtpInput({ value, onChange }) {
           onKeyDown={(e) => handleKey(e, idx)}
           onPaste={handlePaste}
           className={cn(
-            'w-11 h-12 text-center text-lg font-black rounded-xl border bg-muted text-foreground outline-none transition-all',
+            'h-12 text-center text-lg font-black rounded-xl border bg-muted text-foreground outline-none transition-all',
+            length > 6 ? 'w-9' : 'w-11',
             digit ? 'border-primary ring-2 ring-primary/20' : 'border-border focus:border-primary focus:ring-2 focus:ring-primary/20'
           )}
         />
@@ -130,7 +131,7 @@ function OtpInput({ value, onChange }) {
 }
 
 // ── Main LoginPage ─────────────────────────────────────────────────────────────
-// Views: 'login' | 'signup' | 'forgot' | 'verify-signup' | 'verify-forgot-sent' | 'reset-password'
+// Views: 'login' | 'signup' | 'forgot' | 'verify-signup' | 'verify-forgot' | 'reset-password'
 export function LoginPage({ passwordRecovery = false }) {
   const [view,            setView]            = useState(passwordRecovery ? 'reset-password' : 'login');
   const [email,           setEmail]           = useState('');
@@ -223,14 +224,49 @@ export function LoginPage({ passwordRecovery = false }) {
     }
   };
 
+  // ── Verify forgot password OTP ───────────────────────────────────────────────
+  const handleVerifyForgotOtp = async (e) => {
+    e.preventDefault();
+    clearMessages();
+    if (otp.length < 6) { setErrorMsg('Please enter the full code.'); return; }
+    setLoading(true);
+    
+    try {
+      // Flag for App.jsx so it doesn't immediately navigate to Dashboard
+      localStorage.setItem('forcePasswordRecovery', 'true');
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: otp,
+        type: 'recovery',
+      });
+      if (error) {
+        localStorage.removeItem('forcePasswordRecovery');
+        throw error;
+      }
+      // Success, switch view locally just in case (App.jsx might also unmount and remount with passwordRecovery=true)
+      switchView('reset-password');
+      setSuccessMsg('Code verified. Choose your new password.');
+    } catch (err) {
+      setErrorMsg(friendlyError(err.message));
+      setOtp('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // ── Resend OTP ───────────────────────────────────────────────────────────────
   const handleResendOtp = async () => {
     if (resendCooldown > 0) return;
     clearMessages();
     setLoading(true);
     try {
-      const { error } = await supabase.auth.resend({ type: 'signup', email });
-      if (error) throw error;
+      const isVerifyForgot = view === 'verify-forgot';
+      if (isVerifyForgot) {
+        await supabase.auth.resetPasswordForEmail(email);
+      } else {
+        const { error } = await supabase.auth.resend({ type: 'signup', email });
+        if (error) throw error;
+      }
       setSuccessMsg('A new verification code has been sent to your email.');
       startCooldown();
     } catch (err) {
@@ -246,6 +282,7 @@ export function LoginPage({ passwordRecovery = false }) {
     clearMessages();
     setLoading(true);
     try {
+      localStorage.removeItem('forcePasswordRecovery');
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
@@ -275,18 +312,35 @@ export function LoginPage({ passwordRecovery = false }) {
 
   // ── Forgot password ──────────────────────────────────────────────────────────
   const handleForgotPassword = async (e) => {
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
     clearMessages();
+    
+    if (!email) {
+      setErrorMsg('Please enter your email address first to reset your password.');
+      return;
+    }
+
     setLoading(true);
     try {
-      await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
-      // Always show success to prevent email enumeration
+      await supabase.auth.resetPasswordForEmail(email);
     } catch (_) {}
-    setSuccessMsg("If an account exists, we've sent a reset link. Check your inbox & spam.");
+    
+    // Create obfuscated email (e.g. as*****@gmail.com)
+    let obfuscated = email;
+    if (email.includes('@')) {
+      const [local, domain] = email.split('@');
+      const visibleLen = Math.min(2, local.length);
+      obfuscated = `${local.substring(0, visibleLen)}${'*'.repeat(Math.max(3, local.length - visibleLen))}@${domain}`;
+    }
+    
+    // Switch to verification view explicitly instead of just showing success text
+    switchView('verify-forgot');
+    setSuccessMsg(`An OTP code has been sent to ${obfuscated}. Please check your inbox and spam folder.`);
+    startCooldown();
     setLoading(false);
   };
 
-  // ── Reset password (from recovery link) ─────────────────────────────────────
+  // ── Reset password (from recovery link or OTP) ──────────────────────────────
   const handleResetPassword = async (e) => {
     e.preventDefault();
     clearMessages();
@@ -296,6 +350,9 @@ export function LoginPage({ passwordRecovery = false }) {
     try {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
+      
+      // Remove the force override flag on successful password change
+      localStorage.removeItem('forcePasswordRecovery');
       setSuccessMsg('Password updated! Redirecting…');
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
@@ -305,16 +362,19 @@ export function LoginPage({ passwordRecovery = false }) {
     }
   };
 
-  const isLogin         = view === 'login';
-  const isSignup        = view === 'signup';
-  const isForgot        = view === 'forgot';
-  const isVerifySignup  = view === 'verify-signup';
-  const isResetPassword = view === 'reset-password';
+  const isLogin          = view === 'login';
+  const isSignup         = view === 'signup';
+  const isForgot         = view === 'forgot';
+  const isVerifySignup   = view === 'verify-signup';
+  const isVerifyForgot   = view === 'verify-forgot';
+  const isResetPassword  = view === 'reset-password';
 
-  const handleSubmit = isLogin         ? handleLogin
+  const handleSubmit = 
+      isLogin        ? handleLogin
     : isSignup       ? handleSignup
     : isForgot       ? handleForgotPassword
     : isVerifySignup ? handleVerifyOtp
+    : isVerifyForgot ? handleVerifyForgotOtp
     : isResetPassword ? handleResetPassword
     : (e) => e.preventDefault();
 
@@ -356,14 +416,14 @@ export function LoginPage({ passwordRecovery = false }) {
                   {isLogin         && 'Access System'}
                   {isSignup        && 'Initialize Account'}
                   {isForgot        && 'Reset Password'}
-                  {isVerifySignup  && 'Verify Your Email'}
+                  {(isVerifySignup || isVerifyForgot)  && 'Verify Your Email'}
                   {isResetPassword && 'Set New Password'}
                 </h2>
                 <p className="text-sm font-medium text-muted-foreground mt-1">
                   {isLogin         && 'Enter your credentials to continue.'}
                   {isSignup        && 'Create a new account. Email verification required.'}
-                  {isForgot        && "We'll send a reset link to your email."}
-                  {isVerifySignup  && `Enter the 6-digit code sent to ${email}`}
+                  {isForgot        && "We'll send an OTP to your email."}
+                  {(isVerifySignup || isVerifyForgot)  && `Enter the code sent to ${email}`}
                   {isResetPassword && 'Choose a strong new password.'}
                 </p>
               </div>
@@ -385,13 +445,13 @@ export function LoginPage({ passwordRecovery = false }) {
               </AnimatePresence>
 
               {/* ── OTP Verification view ─────────────────────────────────────── */}
-              {isVerifySignup && (
+              {(isVerifySignup || isVerifyForgot) && (
                 <div className="flex flex-col gap-5">
                   <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
                     <Mail size={24} className="text-primary" />
                   </div>
 
-                  <OtpInput value={otp} onChange={setOtp} />
+                  <OtpInput value={otp} onChange={setOtp} length={8} />
 
                   <button
                     type="submit"
@@ -464,7 +524,7 @@ export function LoginPage({ passwordRecovery = false }) {
                       <div className="flex justify-between mb-1.5">
                         <label className={labelCls}>Password</label>
                         {isLogin && (
-                          <button type="button" onClick={() => switchView('forgot')} className="text-[10px] font-bold text-primary hover:text-primary/80 transition-colors">FORGOT?</button>
+                          <button type="button" onClick={() => handleForgotPassword()} className="text-[10px] font-bold text-primary hover:text-primary/80 transition-colors" disabled={loading}>FORGOT?</button>
                         )}
                       </div>
                       <div className="relative">
