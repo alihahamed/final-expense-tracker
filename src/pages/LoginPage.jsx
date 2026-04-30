@@ -7,7 +7,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
-const PROD_URL = 'https://final-expense-tracker-psi.vercel.app';
+// Using window.location.origin ensures redirects work dynamically in both dev and production
 
 // ── Friendly error mapping ─────────────────────────────────────────────────────
 const FRIENDLY_ERRORS = {
@@ -182,7 +182,7 @@ export function LoginPage({ passwordRecovery = false }) {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: PROD_URL },
+        options: { emailRedirectTo: window.location.origin },
       });
       if (error) throw error;
 
@@ -268,7 +268,7 @@ export function LoginPage({ passwordRecovery = false }) {
     clearMessages();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: PROD_URL },
+      options: { redirectTo: window.location.origin },
     });
     if (error) setErrorMsg(friendlyError(error.message));
   };
@@ -279,7 +279,7 @@ export function LoginPage({ passwordRecovery = false }) {
     clearMessages();
     setLoading(true);
     try {
-      await supabase.auth.resetPasswordForEmail(email, { redirectTo: PROD_URL });
+      await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
       // Always show success to prevent email enumeration
     } catch (_) {}
     setSuccessMsg("If an account exists, we've sent a reset link. Check your inbox & spam.");
