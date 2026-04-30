@@ -1,0 +1,37 @@
+[
+  {
+    "type": "expense",
+    "category": "Food & Dining",
+    "description": "Dinner at local restaurant",
+    "amount": 1500,
+    "date": "2026-04-28"
+  },
+  {
+    "type": "expense",
+    "category": "Transportation",
+    "description": "Uber ride to office",
+    "amount": 350.50,
+    "date": "2026-04-29"
+  },
+  {
+    "type": "income",
+    "category": "Salary",
+    "description": "April Salary",
+    "amount": 85000,
+    "date": "2026-04-30"
+  },
+  {
+    "type": "expense",
+    "category": "Utilities",
+    "description": "Electricity Bill",
+    "amount": 2100,
+    "date": "2026-04-25"
+  },
+  {
+    "type": "expense",
+    "category": "Shopping",
+    "description": "Groceries from Supermarket",
+    "amount": 4200.75,
+    "date": "2026-04-27"
+  }
+]

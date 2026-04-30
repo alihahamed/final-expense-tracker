@@ -2,19 +2,22 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DashboardPage } from './pages/DashboardPage';
 import { TransactionsPage } from './pages/TransactionsPage';
+import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LedgersPage } from './pages/LedgersPage';
 import { LoginPage } from './pages/LoginPage';
 import { SettleUpModal } from './components/SettleUpModal';
 import { ReceiptScanModal } from './components/ReceiptScanModal';
+import { ActivityFeed, ActivityBell } from './components/ActivityFeed';
+import { ImportModal } from './components/ImportModal';
 import { supabase } from './lib/supabase';
 import { buildMonthlyTrend, CURRENCIES, CAT_EMOJI } from './utils/data';
 import { cn } from './lib/utils';
 import { Toaster, toast } from 'sonner';
 import {
-  LayoutDashboard, Receipt, Settings, Moon, Sun,
+  LayoutDashboard, Receipt, Settings, BarChart2,
   X, Check, Wallet, TrendingUp, ArrowUpRight, ArrowDownLeft, Users,
-  User, LogOut, ScanLine, QrCode,
+  User, LogOut, QrCode, Upload, Tag, Repeat,
 } from 'lucide-react';
 import Logo from './assets/app-logo.png';
 import Av1 from './assets/3D_Portrait_Avatar_1.png';
@@ -33,7 +36,7 @@ const AVATARS = [
 
 // ── currency formatter ────────────────────────────────────────────────────────
 function makeFmt(currency) {
-  const { locale } = CURRENCIES[currency] || CURRENCIES.USD;
+  const { locale } = CURRENCIES[currency] || CURRENCIES.INR;
   return (amount) =>
     new Intl.NumberFormat(locale, {
       style: 'currency',
@@ -49,7 +52,7 @@ const EXPENSE_CATS = ['Rent','Groceries','Dining','Utilities','Transport','Shopp
 // ─────────────────────────────────────────────────────────────────────────────
 // Transaction Modal  (enter: slide-up + fade, exit: fade down)
 // ─────────────────────────────────────────────────────────────────────────────
-function TxnModal({ initial, onSave, onClose }) {
+function TxnModal({ initial, currency = 'INR', onSave, onClose }) {
   const isEdit = !!initial?.id;
   const [type,  setType]  = useState(initial?.type       || 'expense');
   const [cat,   setCat]   = useState(initial?.category    || '');
@@ -57,8 +60,19 @@ function TxnModal({ initial, onSave, onClose }) {
   const [amt,   setAmt]   = useState(initial ? String(Math.abs(initial.amount)) : '');
   const [date,  setDate]  = useState(initial?.date        || new Date().toISOString().split('T')[0]);
   const [error, setError] = useState('');
+  const [tags,  setTags]  = useState(initial?.tags || []);
+  const [tagInput, setTagInput] = useState('');
+  const [isRecurring, setIsRecurring] = useState(initial?.is_recurring || false);
+  const [recurrenceInterval, setRecurrenceInterval] = useState(initial?.recurrence_interval || 'monthly');
 
   const cats = type === 'income' ? INCOME_CATS : EXPENSE_CATS;
+
+  const addTag = () => {
+    const t = tagInput.trim().toLowerCase();
+    if (t && !tags.includes(t)) setTags(prev => [...prev, t]);
+    setTagInput('');
+  };
+  const removeTag = (t) => setTags(prev => prev.filter(x => x !== t));
 
   const handleSave = () => {
     const amount = parseFloat(amt);
@@ -67,12 +81,15 @@ function TxnModal({ initial, onSave, onClose }) {
     if (isNaN(amount) || amount <= 0) return setError('Please enter a valid positive amount.');
 
     onSave({
-      id: initial?.id || undefined, // undefined signals a new insert
+      id: initial?.id || undefined,
       type,
       category: cat,
       description: desc.trim(),
       amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount),
       date,
+      tags,
+      is_recurring: isRecurring,
+      recurrence_interval: isRecurring ? recurrenceInterval : null,
     });
     onClose();
   };
@@ -186,7 +203,9 @@ function TxnModal({ initial, onSave, onClose }) {
           <div>
             <label className={labelCls}>Amount</label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground pointer-events-none">$</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground pointer-events-none">
+                {CURRENCIES[currency]?.symbol || '₹'}
+              </span>
               <input
                 type="number"
                 min="0"
@@ -208,6 +227,68 @@ function TxnModal({ initial, onSave, onClose }) {
               onChange={e => setDate(e.target.value)}
               className={inputCls}
             />
+          </div>
+
+          {/* Tags */}
+          <div>
+            <label className={labelCls}>Tags</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {tags.map(t => (
+                <span key={t} className="flex items-center gap-1 bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  <Tag size={9} />{t}
+                  <button onClick={() => removeTag(t)} className="hover:text-rose-500 ml-0.5">×</button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Add tag…"
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+                className={cn(inputCls, 'flex-1')}
+              />
+              <button
+                type="button"
+                onClick={addTag}
+                disabled={!tagInput.trim()}
+                className="px-3 py-2 bg-primary/10 text-primary text-xs font-bold rounded-xl hover:bg-primary/20 transition-colors disabled:opacity-40"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {/* Recurring */}
+          <div>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <div className={cn(
+                'relative w-9 h-5 rounded-full transition-colors',
+                isRecurring ? 'bg-primary' : 'bg-border'
+              )} onClick={() => setIsRecurring(!isRecurring)}>
+                <div className={cn(
+                  'absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all',
+                  isRecurring ? 'left-[18px]' : 'left-0.5'
+                )} />
+              </div>
+              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Repeat size={12} className="text-muted-foreground" />
+                Recurring transaction
+              </span>
+            </label>
+            {isRecurring && (
+              <select
+                value={recurrenceInterval}
+                onChange={e => setRecurrenceInterval(e.target.value)}
+                className={cn(inputCls, 'mt-2')}
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            )}
           </div>
         </div>
 
@@ -250,6 +331,7 @@ function TxnModal({ initial, onSave, onClose }) {
 const NAV = [
   { id: 'dashboard',    label: 'Dashboard',    icon: LayoutDashboard },
   { id: 'transactions', label: 'Transactions', icon: Receipt },
+  { id: 'reports',      label: 'Reports',      icon: BarChart2 },
   { id: 'ledgers',      label: 'Workspaces',   icon: Users },
 ];
 
@@ -257,17 +339,19 @@ const NAV = [
 export default function App() {
   const [session, setSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   
   // Ledgers & Transactions State
   const [ledgers, setLedgers] = useState([]);
   const [activeLedger, setActiveLedger] = useState(null);
   const [txns, setTxns] = useState([]);
   
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState('INR');
   const [page,     setPage]     = useState('dashboard');
   const [modal,        setModal]        = useState(null);
   const [receiptScanOpen, setReceiptScanOpen] = useState(false);
   const [settleModal,  setSettleModal]  = useState(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [ledgerMembers, setLedgerMembers] = useState([]);
   const [userName, setUserName] = useState('Alex');
   const [incomeTarget, setIncomeTarget] = useState(5000);
@@ -275,6 +359,15 @@ export default function App() {
   const [avatarUrl, setAvatarUrl] = useState(Av1);
   const [profileLoading, setProfileLoading] = useState(true);
   const txnsChannelRef = useRef(null);
+
+  // ── Role & Activity Feed ────────────────────────────────────────────────────
+  const [currentUserRole, setCurrentUserRole] = useState('editor');
+  const [activityItems, setActivityItems] = useState([]);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [lastSeenAt, setLastSeenAt] = useState(() => {
+    return localStorage.getItem('kinetic_activity_last_seen') || new Date(0).toISOString();
+  });
+  const activityChannelRef = useRef(null);
 
   // 1. Auth Subscription
   useEffect(() => {
@@ -284,7 +377,15 @@ export default function App() {
       else setLoadingSession(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        // User clicked reset link — show new-password form, DON'T auto-login
+        setPasswordRecovery(true);
+        setSession(session);
+        setLoadingSession(false);
+        return;
+      }
+      setPasswordRecovery(false);
       setSession(session);
       if (session) fetchProfile(session.user.id);
     });
@@ -309,7 +410,7 @@ export default function App() {
 
     if (data) {
       setUserName(data.display_name || 'Alex');
-      setCurrency(data.currency || 'USD');
+      setCurrency(data.currency || 'INR');
       setIncomeTarget(data.income_target || 5000);
       setFixedObligations(data.fixed_obligations || 2000);
       
@@ -321,14 +422,14 @@ export default function App() {
         id: userId,
         display_name: 'Alex',
         avatar_url: 'av1',
-        currency: 'USD',
+        currency: 'INR',
         income_target: 5000,
         fixed_obligations: 2000,
         updated_at: new Date().toISOString(),
       };
       await supabase.from('profiles').upsert(defaultProfile, { onConflict: 'id' });
       setUserName('Alex');
-      setCurrency('USD');
+      setCurrency('INR');
       setIncomeTarget(5000);
       setFixedObligations(2000);
       setAvatarUrl(Av1);
@@ -363,7 +464,7 @@ export default function App() {
         if (!lErr) {
           await supabase
             .from('ledger_members')
-            .insert([{ ledger_id: defaultLedgerId, user_id: session.user.id }]);
+            .insert([{ ledger_id: defaultLedgerId, user_id: session.user.id, role: 'owner' }]);
           const { data: newLedger } = await supabase
             .from('ledgers')
             .select('*')
@@ -397,6 +498,41 @@ export default function App() {
 
     initLedgers();
   }, [session]);
+
+  // ── Fetch current user's role in active ledger ──────────────────────────────
+  useEffect(() => {
+    if (!session?.user?.id || !activeLedger?.id) return;
+    supabase
+      .from('ledger_members')
+      .select('role')
+      .eq('ledger_id', activeLedger.id)
+      .eq('user_id', session.user.id)
+      .single()
+      .then(({ data }) => { if (data) setCurrentUserRole(data.role || 'editor'); });
+  }, [activeLedger?.id, session?.user?.id]);
+
+  // ── Fetch & subscribe to activity feed ────────────────────────────────────
+  useEffect(() => {
+    if (!activeLedger?.id) { setActivityItems([]); return; }
+    // Fetch last 30 items
+    supabase
+      .from('ledger_activity')
+      .select('*')
+      .eq('ledger_id', activeLedger.id)
+      .order('created_at', { ascending: false })
+      .limit(30)
+      .then(({ data }) => { if (data) setActivityItems(data); });
+
+    const ch = supabase
+      .channel(`activity-${activeLedger.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ledger_activity', filter: `ledger_id=eq.${activeLedger.id}` },
+        (payload) => setActivityItems(prev => [payload.new, ...prev].slice(0, 30))
+      )
+      .subscribe();
+
+    activityChannelRef.current = ch;
+    return () => { supabase.removeChannel(ch); };
+  }, [activeLedger?.id]);
 
   // Persist active ledger to localStorage whenever it changes
   useEffect(() => {
@@ -529,27 +665,55 @@ export default function App() {
   const localTxns    = useMemo(() => txns.map(t => ({ ...t, amount: t.amount * rate })), [txns, rate]);
   const monthlyTrend = useMemo(() => buildMonthlyTrend(localTxns), [localTxns]);
 
+  // ── Log activity helper ───────────────────────────────────────────────────
+  const logActivity = useCallback(async (action, metadata, entityId) => {
+    if (!activeLedger?.id || !session?.user?.id) return;
+    await supabase.from('ledger_activity').insert([{
+      ledger_id: activeLedger.id,
+      user_id: session.user.id,
+      display_name: userName,
+      action,
+      entity_id: entityId || null,
+      metadata: metadata || {},
+    }]);
+  }, [activeLedger?.id, session?.user?.id, userName]);
+
+  const unreadCount = activityItems.filter(i => i.created_at > lastSeenAt && i.user_id !== session?.user?.id).length;
+
+  const handleMarkRead = useCallback(() => {
+    const now = new Date().toISOString();
+    setLastSeenAt(now);
+    localStorage.setItem('kinetic_activity_last_seen', now);
+  }, []);
+
   const handleAdd    = useCallback((type) => {
     if (!activeLedger) return alert('Select or create a workspace first!');
+    if (currentUserRole === 'viewer') return toast.error('You have view-only access to this workspace.');
     setModal({ mode: 'add', type });
-  }, [activeLedger]);
+  }, [activeLedger, currentUserRole]);
 
   const handleOpenReceiptScan = useCallback(() => {
     if (!activeLedger) return alert('Select or create a workspace first!');
     setReceiptScanOpen(true);
   }, [activeLedger]);
   
-  const handleEdit   = useCallback((tx)   => setModal({ mode: 'edit', tx }),  []);
+  const handleEdit   = useCallback((tx) => {
+    if (currentUserRole === 'viewer') return toast.error('You have view-only access to this workspace.');
+    setModal({ mode: 'edit', tx });
+  }, [currentUserRole]);
   
   const handleDelete = useCallback(async (id) => {
+    if (currentUserRole === 'viewer') return toast.error('You have view-only access to this workspace.');
+    const tx = txns.find(t => t.id === id);
     const { error } = await supabase.from('transactions').delete().eq('id', id);
     if (!error) {
        setTxns(prev => prev.filter(t => t.id !== id));
        await notifyLedgerChanged('transaction_deleted');
+       await logActivity('deleted', { description: tx?.description, category: tx?.category, amount: tx?.amount, type: tx?.type }, id);
     } else {
-       console.error("Delete failed:", error);
+       console.error('Delete failed:', error);
     }
-  }, [notifyLedgerChanged]);
+  }, [notifyLedgerChanged, currentUserRole, txns, logActivity]);
 
   const handleSave = useCallback(async (tx) => {
     if (!activeLedger?.id) return;
@@ -566,7 +730,10 @@ export default function App() {
             category: tx.category,
             description: tx.description,
             amount: baseAmount,
-            date: tx.date
+            date: tx.date,
+            tags: tx.tags || [],
+            is_recurring: tx.is_recurring || false,
+            recurrence_interval: tx.recurrence_interval || null,
          })
          .eq('id', tx.id)
          .select()
@@ -575,6 +742,7 @@ export default function App() {
        if (!error && data) {
          setTxns(prev => prev.map(t => t.id === data.id ? data : t));
          await notifyLedgerChanged('transaction_updated');
+         await logActivity('updated', { description: data.description, category: data.category, amount: data.amount, type: data.type }, data.id);
        }
     } else {
        // Insert
@@ -587,7 +755,10 @@ export default function App() {
             category: tx.category,
             description: tx.description,
             amount: tx.amount,
-            date: tx.date
+            date: tx.date,
+            tags: tx.tags || [],
+            is_recurring: tx.is_recurring || false,
+            recurrence_interval: tx.recurrence_interval || null,
          }])
          .select()
          .single();
@@ -595,9 +766,10 @@ export default function App() {
        if (!error && data) {
          setTxns(prev => [data, ...prev].sort((a,b) => b.date.localeCompare(a.date)));
          await notifyLedgerChanged('transaction_inserted');
+         await logActivity('added', { description: data.description, category: data.category, amount: data.amount, type: data.type }, data.id);
        }
     }
-  }, [activeLedger, notifyLedgerChanged, session]);
+  }, [activeLedger, notifyLedgerChanged, session, logActivity]);
 
   const handleSettle = useCallback(async ({ payerId, amount, date, note }) => {
     if (!activeLedger?.id) return;
@@ -621,26 +793,55 @@ export default function App() {
     if (error) { toast.error('Failed to record settlement'); return; }
     setTxns(prev => [data, ...prev].sort((a, b) => b.date.localeCompare(a.date)));
     await notifyLedgerChanged('settlement_inserted');
+    await logActivity('settled', { description: note || 'Settle up', amount, type: 'transfer' }, data.id);
     toast.success('Settlement recorded');
     setSettleModal(null);
-  }, [activeLedger, notifyLedgerChanged]);
+  }, [activeLedger, notifyLedgerChanged, logActivity]);
+
+  const handleBulkImport = useCallback(async (rows) => {
+    if (!activeLedger?.id || !session?.user?.id) return;
+    const rate = CURRENCIES[currency]?.rate || 1;
+    const inserts = rows.map(r => ({
+      ledger_id: activeLedger.id,
+      user_id: session.user.id,
+      type: r.type,
+      category: r.category,
+      description: r.description,
+      amount: r.amount / rate,
+      date: r.date,
+      tags: r.tags || [],
+      is_recurring: false,
+      recurrence_interval: null,
+    }));
+    const { data, error } = await supabase
+      .from('transactions')
+      .insert(inserts)
+      .select();
+    if (!error && data) {
+      setTxns(prev => [...data, ...prev].sort((a, b) => b.date.localeCompare(a.date)));
+      await notifyLedgerChanged('bulk_import');
+      await logActivity('added', { description: `Imported ${data.length} transactions` });
+    } else {
+      toast.error('Import failed — some rows may have errors');
+    }
+  }, [activeLedger, session, currency, notifyLedgerChanged, logActivity]);
 
   return (
     <div className="min-h-screen bg-black font-sans selection:bg-primary/30">
       <Toaster theme="light" position="top-center" />
-      {!session && !loadingSession && (
-         <LoginPage />
+      {((!session && !loadingSession) || passwordRecovery) && (
+         <LoginPage passwordRecovery={passwordRecovery} />
       )}
 
-      {session && (
+      {session && !passwordRecovery && (
         <>
           <div className="h-screen flex p-4 gap-4 bg-black">
             {/* ── Sidebar ─────────────────────────────────────────────────────────── */}
             <aside
-              className="w-64 shrink-0 flex flex-col px-4 py-8 bg-black text-white rounded-3xl shadow-2xl relative"
+              className="w-64 shrink-0 flex flex-col px-4 py-6 bg-black text-white rounded-3xl shadow-2xl relative overflow-hidden"
             >
               {/* Logo area */}
-              <div className="px-2 mb-10">
+              <div className="px-2 mb-6">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-orange-500/10">
                     <img src={Logo} alt="Kinetic Logo" className="w-full h-full object-cover" />
@@ -684,46 +885,37 @@ export default function App() {
                     {label}
                   </button>
                 ))}
+                {/* Activity Feed trigger */}
+                <ActivityBell unreadCount={unreadCount} onClick={() => setActivityOpen(o => !o)} />
+                {/* Import trigger */}
+                <button
+                  onClick={() => setImportModalOpen(true)}
+                  className="relative flex items-center gap-3.5 px-4 py-3.5 rounded-2xl text-[14px] font-medium transition-all duration-200 text-left w-full text-white/45 hover:text-white/90 hover:bg-white/5"
+                >
+                  <Upload size={18} className="shrink-0 text-white/30" />
+                  Import
+                </button>
               </nav>
 
               <button
                 onClick={handleOpenReceiptScan}
-                className="mt-4 flex-1 min-h-[220px] w-full rounded-2xl bg-primary text-white p-5 text-left relative overflow-hidden border border-white/10 hover:brightness-105 transition-all"
+                className="mt-3 w-full rounded-2xl bg-primary text-white p-4 text-left relative overflow-hidden border border-white/10 hover:brightness-105 transition-all shrink-0"
               >
                 <div className="absolute -right-10 -top-10 w-36 h-36 rounded-full bg-white/10 blur-2xl pointer-events-none" />
-                <div className="absolute inset-0 opacity-25 pointer-events-none">
-                  <div className="grid grid-cols-8 gap-1 p-4">
-                    {Array.from({ length: 64 }).map((_, i) => (
-                      <span
-                        key={`qr-dot-${i}`}
-                        className={cn(
-                          'w-2.5 h-2.5 rounded-[2px] bg-white/70',
-                          i % 3 === 0 ? 'opacity-90' : 'opacity-35'
-                        )}
-                      />
-                    ))}
-                  </div>
-                </div>
 
-                <div className="relative z-10 h-full flex flex-col justify-between">
-                  <div className="w-12 h-12 rounded-xl bg-white/15 border border-white/30 flex items-center justify-center">
-                    <QrCode size={24} />
+                <div className="relative z-10 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/15 border border-white/30 flex items-center justify-center shrink-0">
+                    <QrCode size={20} />
                   </div>
-
                   <div>
-                    {/* <p className="text-xs font-medium uppercase tracking-widest text-white/80 mb-1">Quick Capture</p> */}
-                    <p className="text-2xl font-semibold tracking-tight leading-tight">Scan Receipt</p>
-                    <p className="text-[11px] text-white/85 mt-1">Read merchant, amount, date, and items</p>
-                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/15 border border-white/20 text-xs font-semibold">
-                      <ScanLine size={14} />
-                      Start Scan
-                    </div>
+                    <p className="text-sm font-semibold tracking-tight leading-tight">Scan Receipt</p>
+                    <p className="text-[10px] text-white/75 mt-0.5">AI-powered capture</p>
                   </div>
                 </div>
               </button>
 
               {/* Bottom Section */}
-              <div className="mt-4 flex flex-col gap-2">
+              <div className="mt-auto pt-3 flex flex-col gap-2 shrink-0">
                 {/* Settings Link */}
                 <button
                   onClick={() => setPage('settings')}
@@ -844,6 +1036,22 @@ export default function App() {
                       />
                     </motion.div>
                   )}
+                  {page === 'reports' && (
+                    <motion.div
+                      key="reports"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{   opacity: 0, y: -8 }}
+                      transition={{ duration: 0.25, ease: 'easeOut' }}
+                    >
+                      <ReportsPage
+                        txns={localTxns}
+                        fmt={fmt}
+                        monthlyTrend={monthlyTrend}
+                        activeLedger={activeLedger}
+                      />
+                    </motion.div>
+                  )}
                   {page === 'settings' && (
                     <motion.div
                       key="settings"
@@ -876,6 +1084,7 @@ export default function App() {
               <TxnModal
                 key="txn-modal"
                 initial={modal.mode === 'edit' ? modal.tx : { type: modal.type }}
+                currency={currency}
                 onSave={handleSave}
                 onClose={() => setModal(null)}
               />
@@ -895,6 +1104,29 @@ export default function App() {
                 fmt={fmt}
                 onConfirm={handleSettle}
                 onClose={() => setSettleModal(null)}
+              />
+            )}
+            {importModalOpen && (
+              <ImportModal
+                key="import-modal"
+                onImport={handleBulkImport}
+                onClose={() => setImportModalOpen(false)}
+                existingTxns={txns}
+              />
+            )}
+          </AnimatePresence>
+
+          {/* ── Activity Feed Panel ─────────────────────────────────────── */}
+          <AnimatePresence>
+            {activityOpen && (
+              <ActivityFeed
+                items={activityItems}
+                unreadCount={unreadCount}
+                currentUserId={session.user.id}
+                members={ledgerMembers}
+                fmt={fmt}
+                onClose={() => setActivityOpen(false)}
+                onMarkRead={handleMarkRead}
               />
             )}
           </AnimatePresence>

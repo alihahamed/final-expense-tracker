@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { Plus, KeyRound, ArrowRight, FileText, Share2, Check, Trash2, X, Users, Settings, LogOut, MoreVertical, Copy, ExternalLink } from 'lucide-react';
+import { Plus, KeyRound, ArrowRight, FileText, Share2, Check, Trash2, X, Users, Settings, LogOut, MoreVertical, Copy, ExternalLink, ShieldCheck, Eye, Edit3 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 
@@ -22,6 +22,7 @@ export function LedgersPage({
   const [orbitRadius, setOrbitRadius] = useState(280);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, ledger: null });
   const [ledgerMembersMap, setLedgerMembersMap] = useState({});
+  const [ledgerRolesMap, setLedgerRolesMap] = useState({}); // { ledgerId: { userId: role } }
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -44,14 +45,14 @@ export function LedgersPage({
     }
   }, [ledgers]);
 
-  // Fetch members + profiles for all ledgers
+  // Fetch members + profiles + roles for all ledgers
   useEffect(() => {
     if (!ledgers.length) return;
     async function fetchAllMembers() {
       const ledgerIds = ledgers.map(l => l.id);
       const { data: members, error: mErr } = await supabase
         .from('ledger_members')
-        .select('ledger_id, user_id')
+        .select('ledger_id, user_id, role')
         .in('ledger_id', ledgerIds);
       if (mErr || !members) return;
 
@@ -66,16 +67,21 @@ export function LedgersPage({
       (profiles || []).forEach(p => { profileMap[p.id] = p; });
 
       const map = {};
+      const rolesMap = {};
       members.forEach(m => {
         if (!map[m.ledger_id]) map[m.ledger_id] = [];
+        if (!rolesMap[m.ledger_id]) rolesMap[m.ledger_id] = {};
         const profile = profileMap[m.user_id];
         map[m.ledger_id].push({
           user_id: m.user_id,
           display_name: profile?.display_name || 'User',
           avatar_id: profile?.avatar_url || 'av1',
+          role: m.role || 'editor',
         });
+        rolesMap[m.ledger_id][m.user_id] = m.role || 'editor';
       });
       setLedgerMembersMap(map);
+      setLedgerRolesMap(rolesMap);
     }
     fetchAllMembers();
   }, [ledgers]);
@@ -127,7 +133,7 @@ export function LedgersPage({
 
       const { error: mErr } = await supabase
         .from('ledger_members')
-        .insert([{ ledger_id: newLedgerId, user_id: session.user.id }]);
+        .insert([{ ledger_id: newLedgerId, user_id: session.user.id, role: 'owner' }]);
       if (mErr) throw mErr;
 
       await fetchLedgers(newLedgerId);
@@ -196,6 +202,47 @@ export function LedgersPage({
     setCopiedCode(true);
     toast.success('Invite code copied to clipboard!');
     setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleChangeRole = async (ledgerId, userId, newRole) => {
+    const { error } = await supabase
+      .from('ledger_members')
+      .update({ role: newRole })
+      .eq('ledger_id', ledgerId)
+      .eq('user_id', userId);
+    if (!error) {
+      setLedgerRolesMap(prev => ({
+        ...prev,
+        [ledgerId]: { ...(prev[ledgerId] || {}), [userId]: newRole },
+      }));
+      setLedgerMembersMap(prev => ({
+        ...prev,
+        [ledgerId]: (prev[ledgerId] || []).map(m =>
+          m.user_id === userId ? { ...m, role: newRole } : m
+        ),
+      }));
+      toast.success(`Role updated to ${newRole}`);
+    } else {
+      toast.error('Could not update role. Owner rights required.');
+    }
+  };
+
+  const handleRemoveMember = async (ledgerId, userId, displayName) => {
+    if (!window.confirm(`Remove ${displayName} from this workspace?`)) return;
+    const { error } = await supabase
+      .from('ledger_members')
+      .delete()
+      .eq('ledger_id', ledgerId)
+      .eq('user_id', userId);
+    if (!error) {
+      setLedgerMembersMap(prev => ({
+        ...prev,
+        [ledgerId]: (prev[ledgerId] || []).filter(m => m.user_id !== userId),
+      }));
+      toast.success(`${displayName} removed`);
+    } else {
+      toast.error('Could not remove member. Owner rights required.');
+    }
   };
 
   const handleSelectLedger = (ledger) => {
@@ -588,6 +635,7 @@ export function LedgersPage({
             </button>
             <button
               onClick={() => {
+                handleSelectLedger(contextMenu.ledger);
                 closeContextMenu();
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-muted transition-colors"
@@ -672,6 +720,62 @@ export function LedgersPage({
                   </button>
                 </div>
               </div>
+
+              {/* Members with roles */}
+              {(() => {
+                const members = ledgerMembersMap[selectedLedger.id] || [];
+                const myRole  = ledgerRolesMap[selectedLedger.id]?.[session.user.id] || 'editor';
+                const isOwner = myRole === 'owner';
+                if (!members.length) return null;
+                const ROLE_STYLE = {
+                  owner:  { cls: 'bg-orange-500/10 text-orange-500',  icon: ShieldCheck },
+                  editor: { cls: 'bg-blue-500/10 text-blue-500',      icon: Edit3 },
+                  viewer: { cls: 'bg-muted text-muted-foreground',     icon: Eye },
+                };
+                return (
+                  <div className="bg-muted border border-border rounded-lg p-2">
+                    <span className="block text-[7px] uppercase tracking-widest font-bold text-muted-foreground mb-2">Members ({members.length})</span>
+                    <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto">
+                      {members.map(m => {
+                        const rs = ROLE_STYLE[m.role] || ROLE_STYLE.editor;
+                        const RoleIcon = rs.icon;
+                        const isSelf = m.user_id === session.user.id;
+                        return (
+                          <div key={m.user_id} className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-medium text-foreground truncate flex-1">
+                              {isSelf ? 'You' : m.display_name}
+                            </span>
+                            {isOwner && !isSelf ? (
+                              <div className="flex items-center gap-1">
+                                <select
+                                  value={m.role}
+                                  onChange={e => handleChangeRole(selectedLedger.id, m.user_id, e.target.value)}
+                                  className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded cursor-pointer outline-none border-0 appearance-none', rs.cls)}
+                                >
+                                  <option value="viewer">VIEWER</option>
+                                  <option value="editor">EDITOR</option>
+                                  <option value="owner">OWNER</option>
+                                </select>
+                                <button
+                                  onClick={() => handleRemoveMember(selectedLedger.id, m.user_id, m.display_name)}
+                                  className="p-0.5 rounded text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
+                                  title="Remove member"
+                                >
+                                  <X size={9} />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className={cn('flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded', rs.cls)}>
+                                <RoleIcon size={9} />{m.role?.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Actions */}
               <div className="grid grid-cols-2 gap-1.5">

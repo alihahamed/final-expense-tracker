@@ -1,4 +1,4 @@
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, Tag, Repeat } from 'lucide-react';
 import { fmtDate } from '@/utils/data';
 import { cn } from '@/lib/utils';
 
@@ -87,6 +87,24 @@ export function TransactionCard({ tx, fmt, onEdit, onDelete }) {
           >
             [ {tx.category} ]
           </span>
+
+          {/* Tags */}
+          {tx.tags && tx.tags.length > 0 && (
+            <div className="flex flex-wrap justify-center gap-1 mt-2">
+              {tx.tags.map(t => (
+                <span key={t} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[8px] font-bold uppercase tracking-wider">
+                  <Tag size={7} />{t}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Recurring */}
+          {tx.is_recurring && (
+            <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-500 text-[8px] font-bold uppercase tracking-wider">
+              <Repeat size={8} />{tx.recurrence_interval || 'recurring'}
+            </span>
+          )}
         </div>
 
         {/* ── DIVIDER (orange dashes) ── */}

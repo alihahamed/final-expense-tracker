@@ -6,14 +6,14 @@ export const PALETTE = [
 
 // ── Supported currencies ───────────────────────────────────────────────────────
 export const CURRENCIES = {
-  USD: { symbol: '$',  flag: '🇺🇸', locale: 'en-US', rate: 1 },
-  EUR: { symbol: '€',  flag: '🇪🇺', locale: 'de-DE', rate: 0.92 },
-  GBP: { symbol: '£',  flag: '🇬🇧', locale: 'en-GB', rate: 0.79 },
-  JPY: { symbol: '¥',  flag: '🇯🇵', locale: 'ja-JP', rate: 153.6 },
-  INR: { symbol: '₹',  flag: '🇮🇳', locale: 'en-IN', rate: 83.5 },
-  CAD: { symbol: 'C$', flag: '🇨🇦', locale: 'en-CA', rate: 1.38 },
-  AUD: { symbol: 'A$', flag: '🇦🇺', locale: 'en-AU', rate: 1.54 },
-  SGD: { symbol: 'S$', flag: '🇸🇬', locale: 'en-SG', rate: 1.36 },
+  INR: { symbol: '₹',  flag: '🇮🇳', locale: 'en-IN', rate: 1,    label: 'Indian Rupee' },
+  USD: { symbol: '$',  flag: '🇺🇸', locale: 'en-US', rate: 0.012, label: 'US Dollar' },
+  EUR: { symbol: '€',  flag: '🇪🇺', locale: 'de-DE', rate: 0.011, label: 'Euro' },
+  GBP: { symbol: '£',  flag: '🇬🇧', locale: 'en-GB', rate: 0.0095, label: 'British Pound' },
+  JPY: { symbol: '¥',  flag: '🇯🇵', locale: 'ja-JP', rate: 1.84,  label: 'Japanese Yen' },
+  CAD: { symbol: 'C$', flag: '🇨🇦', locale: 'en-CA', rate: 0.017, label: 'Canadian Dollar' },
+  AUD: { symbol: 'A$', flag: '🇦🇺', locale: 'en-AU', rate: 0.018, label: 'Australian Dollar' },
+  SGD: { symbol: 'S$', flag: '🇸🇬', locale: 'en-SG', rate: 0.016, label: 'Singapore Dollar' },
 };
 
 // ── Sample transactions ────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ export function firstNameFromEmail(email) {
  */
 export function fmtDate(dateStr) {
   if (!dateStr) return '';
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-IN', {
     month: 'short', day: 'numeric', year: 'numeric',
   });
 }

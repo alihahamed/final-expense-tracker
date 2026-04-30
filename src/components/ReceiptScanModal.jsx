@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ScanLine, Loader2, Check, RotateCcw, AlertCircle, Camera, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { CURRENCIES } from '@/utils/data';
 import { parseReceiptText, inferCategory, preprocessImageCanvas } from '@/utils/receiptParser';
 
 const EXPENSE_CATS = ['Rent','Groceries','Dining','Utilities','Transport','Shopping','Health','Entertainment','Education','Other'];
@@ -16,7 +17,7 @@ const labelCls = 'text-[11px] font-semibold text-muted-foreground uppercase trac
  *   onClose   () => void
  *   currency  string
  */
-export function ReceiptScanModal({ onSave, onClose, currency = 'USD' }) {
+export function ReceiptScanModal({ onSave, onClose, currency = 'INR' }) {
   const fileInputRef = useRef(null);
 
   // State machine: 'capturing' | 'scanning' | 'reviewing' | 'saving' | 'error'
@@ -320,7 +321,7 @@ export function ReceiptScanModal({ onSave, onClose, currency = 'USD' }) {
                   <label className={labelCls}>Amount</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium">
-                      {currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency}
+                      {(CURRENCIES[currency]?.symbol) || '₹'}
                     </span>
                     <input
                       type="number"

@@ -6,7 +6,7 @@ export function MiniTooltip({ active, payload, color = '#f97316' }) {
   if (!active || !payload?.length) return null;
   const entry = payload[0];
   const val = typeof entry.value === 'number'
-    ? entry.value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+    ? entry.value.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })
     : entry.value;
 
   return (
